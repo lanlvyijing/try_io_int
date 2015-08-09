@@ -68,18 +68,21 @@ static void eint_callback(void* parameter, VM_DCL_EVENT event, VM_DCL_HANDLE dev
 /* Attaches EINT */
 static void eint_attach(void)
 {
+	/*************步骤一：声明变量、结构体*****************/
     vm_dcl_eint_control_config_t eint_config;
     vm_dcl_eint_control_sensitivity_t sens_data;
     vm_dcl_eint_control_hw_debounce_t deboun_time;
     VM_DCL_STATUS status;
   
+    /*************步骤二：为结构体新申请的内存做初始化工作*****************/
     /* Resets the data structures */
-    memset(&eint_config,0, sizeof(vm_dcl_eint_control_config_t));
+    memset(&eint_config,0, sizeof(vm_dcl_eint_control_config_t));//memset为新申请的内存做初始化工作
     memset(&sens_data,0, sizeof(vm_dcl_eint_control_sensitivity_t));
     memset(&deboun_time,0, sizeof(vm_dcl_eint_control_hw_debounce_t));
 
+    /*************步骤三：打开并连接硬件到中断功能*****************/
     /* Opens and attaches VM_PIN_EINT EINT */
-    g_eint_handle = vm_dcl_open(VM_DCL_EINT, PIN2EINT(VM_PIN_EINT));
+    g_eint_handle = vm_dcl_open(VM_DCL_EINT, PIN2EINT(VM_PIN_EINT));//以中断方式打开，Use PIN2EINT to convert from pin name to EINT number.
   
     if(VM_DCL_HANDLE_INVALID == g_eint_handle)
     {
@@ -87,26 +90,33 @@ static void eint_attach(void)
         return;
     }
 
+    /*************步骤四：MASK中断*****************/
     /* Usually, before configuring the EINT, we mask it firstly. */
-    status = vm_dcl_control(g_eint_handle, VM_DCL_EINT_COMMAND_MASK, NULL);
+    status = vm_dcl_control(g_eint_handle, VM_DCL_EINT_COMMAND_MASK, NULL);//设置中断前需加此句。
     if(status != VM_DCL_STATUS_OK)
     {
       vm_log_info("VM_DCL_EINT_COMMAND_MASK  = %d", status);
     }
 
+    /*************步骤五：注册回调函数并设置触发*****************/
     /* Registers the EINT callback */
-    status = vm_dcl_register_callback(g_eint_handle, VM_DCL_EINT_EVENT_TRIGGER, (vm_dcl_callback)eint_callback, (void*)NULL );
+    /*****************************************************************************************/
+    /* VM_DCL_EINT_EVENT_TRIGGER,Defines the events for EINT module.
+    /*When an application receives this event, it means the EINT has triggered an interrupt.
+    /*******************************************************************************************/
+     status = vm_dcl_register_callback(g_eint_handle, VM_DCL_EINT_EVENT_TRIGGER, (vm_dcl_callback)eint_callback, (void*)NULL );
     if(status != VM_DCL_STATUS_OK)
     {
         vm_log_info("VM_DCL_EINT_EVENT_TRIGGER = %d", status);
     }
 
+    /*************步骤六：设置中断方式*****************/
     /* Configures a FALLING edge to trigger */
     sens_data.sensitivity = 0;
     eint_config.act_polarity = 0;
 
     /* Sets the auto unmask for the EINT */
-    eint_config.auto_unmask = 1;
+    eint_config.auto_unmask = 1;  //1 means unmask after callback
 
     /* Sets the EINT sensitivity */
     status = vm_dcl_control(g_eint_handle, VM_DCL_EINT_COMMAND_SET_SENSITIVITY, (void*)&sens_data);
@@ -124,6 +134,7 @@ static void eint_attach(void)
       vm_log_info("VM_DCL_EINT_COMMAND_SET_HW_DEBOUNCE = %d", status);
     }
 
+    /*************步骤七：设置debounce时间（这里的mask应该可以与上面一个共用）*****************/
     /* Usually, before configuring the EINT, we mask it firstly. */
     status = vm_dcl_control(g_eint_handle, VM_DCL_EINT_COMMAND_MASK, NULL);
     if(status != VM_DCL_STATUS_OK)
@@ -157,15 +168,15 @@ static void eint_timer_cb(VMINT tid, void* user_data)
 }
 
 /* AT command callback, to be invoked when an AT command is sent from the Monitor tool. */
-static void at_callback(vm_cmd_command_t* param, void* user_data)
+static void at_callback(vm_cmd_command_t* param, void* user_data)//通过vm_cmd_command_t结构体传参
 {    
   if(strcmp("Test01", (char*)param->command_buffer) == 0)
   {
     /* Attaches the EINT and creates a timer to trigger it after receiving the AT command: AT+[1000]Test01. */
-    vm_dcl_config_pin_mode(VM_PIN_EINT, VM_DCL_PIN_MODE_EINT); /* Sets the pin VM_PIN_EINT to EINT mode */
-    vm_dcl_config_pin_mode(VM_PIN_SIMULATE, VM_DCL_PIN_MODE_GPIO); /* Sets the pin VM_PIN_SIMULATE to GPIO mode */
-    g_gpio_handle = vm_dcl_open(VM_DCL_GPIO, VM_PIN_SIMULATE);
-    g_timer_id = vm_timer_create_precise(800, eint_timer_cb, NULL);
+    vm_dcl_config_pin_mode(VM_PIN_EINT, VM_DCL_PIN_MODE_EINT); /* Sets the pin VM_PIN_EINT to EINT mode ----D2*/
+    vm_dcl_config_pin_mode(VM_PIN_SIMULATE, VM_DCL_PIN_MODE_GPIO); /* Sets the pin VM_PIN_SIMULATE to GPIO mode----D7*/
+    g_gpio_handle = vm_dcl_open(VM_DCL_GPIO, VM_PIN_SIMULATE);//g_gpio_handle为全局变量
+    g_timer_id = vm_timer_create_precise(800, eint_timer_cb, NULL);//获取精确定时器建立结果，成功返回句柄，失败返回失败值，精确定时器最多设置10个，且进入休眠会停止
     eint_attach();
   }
   else if(strcmp("Test02", (char*)param->command_buffer) == 0)
@@ -185,7 +196,7 @@ static void at_callback(vm_cmd_command_t* param, void* user_data)
 void handle_sysevt(VMINT message, VMINT param) {
   switch (message) {
   case VM_EVENT_CREATE:
-    vm_cmd_open_port(COMMAND_PORT, at_callback, NULL);
+    vm_cmd_open_port(COMMAND_PORT, at_callback, NULL);//为何AT口为1000？
     break;
   case VM_EVENT_QUIT:
     vm_cmd_close_port(COMMAND_PORT);
